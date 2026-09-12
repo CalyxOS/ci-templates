@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: The Calyx Institute
+# SPDX-License-Identifier: Apache-2.0
+
+stages:
+  - build
+  - vote
+
+.gerrit_checkout:
+  before_script:
+    - apt-get update && apt-get install -y git
+    - git fetch https://$GERRIT_HOST/$GERRIT_PROJECT $GERRIT_REF
+    - git checkout FETCH_HEAD
+
+gerrit-vote-success:
+  stage: vote
+  image: curlimages/curl:latest
+  script:
+    - echo "All pipeline stages passed. Posting Builds+1 vote."
+    - >
+      curl -f -s \
+        -H "Content-Type: application/json; charset=UTF-8" \
+        -u "$GERRIT_BOT_USER:$GERRIT_BOT_TOKEN" \
+        -d "{\"message\": \"GitLab CI pipeline passed: $CI_PIPELINE_URL\", \"labels\": {\"Builds\": 1}}" \
+        "https://$GERRIT_HOST/a/changes/${GERRIT_CHANGE_NUM}/revisions/${GERRIT_REVISION}/review"
+  when: on_success
+
+gerrit-vote-failure:
+  stage: vote
+  image: curlimages/curl:latest
+  script:
+    - echo "One or more pipeline stages failed. Posting Builds-1 vote."
+    - >
+      curl -f -s \
+        -H "Content-Type: application/json; charset=UTF-8" \
+        -u "$GERRIT_BOT_USER:$GERRIT_BOT_TOKEN" \
+        -d "{\"message\": \"GitLab CI pipeline failed: $CI_PIPELINE_URL\", \"labels\": {\"Builds\": -1}}" \
+        "https://$GERRIT_HOST/a/changes/${GERRIT_CHANGE_NUM}/revisions/${GERRIT_REVISION}/review"
+  when: on_failure
