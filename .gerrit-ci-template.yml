@@ -8,31 +8,43 @@ stages:
 .gerrit_checkout:
   before_script:
     - apt-get update && apt-get install -y git
-    - git fetch https://$GERRIT_HOST/$GERRIT_PROJECT $GERRIT_REF
-    - git checkout FETCH_HEAD
+    - >
+      if [ -n "$GERRIT_REF" ] && [ -n "$GERRIT_PROJECT" ]; then
+        echo "Gerrit patchset detected. Fetching ref: $GERRIT_REF"
+        git fetch https://$GERRIT_HOST/$GERRIT_PROJECT $GERRIT_REF
+        git checkout FETCH_HEAD
+      fi
+
+.gerrit_vote_base:
+  stage: vote
+  image: curlimages/curl:latest
+  rules:
+    - if: '$GERRIT_REF != null && $GERRIT_REF != ""'
+  variables:
+    VOTE_VALUE: "0"
+    VOTE_STATUS_MSG: ""
+    LOG_MESSAGE: ""
+  script:
+    - echo "$LOG_MESSAGE"
+    - >
+      curl -s \
+        -H "Content-Type: application/json; charset=UTF-8" \
+        -u "$GERRIT_BOT_USER:$GERRIT_BOT_TOKEN" \
+        -d "{\"message\": \"$VOTE_STATUS_MSG: $CI_PIPELINE_URL\", \"labels\": {\"Builds\": $VOTE_VALUE}}" \
+        "https://$GERRIT_HOST/a/changes/${GERRIT_CHANGE_NUM}/revisions/${GERRIT_REVISION}/review"
 
 gerrit-vote-success:
-  stage: vote
-  image: curlimages/curl:latest
-  script:
-    - echo "All pipeline stages passed. Posting Builds+1 vote."
-    - >
-      curl -f -s \
-        -H "Content-Type: application/json; charset=UTF-8" \
-        -u "$GERRIT_BOT_USER:$GERRIT_BOT_TOKEN" \
-        -d "{\"message\": \"GitLab CI pipeline passed: $CI_PIPELINE_URL\", \"labels\": {\"Builds\": 1}}" \
-        "https://$GERRIT_HOST/a/changes/${GERRIT_CHANGE_NUM}/revisions/${GERRIT_REVISION}/review"
+  extends: .gerrit_vote_base
   when: on_success
+  variables:
+    VOTE_VALUE: "1"
+    VOTE_STATUS_MSG: "GitLab CI pipeline passed"
+    LOG_MESSAGE: "All pipeline stages passed. Posting Builds+1 vote."
 
 gerrit-vote-failure:
-  stage: vote
-  image: curlimages/curl:latest
-  script:
-    - echo "One or more pipeline stages failed. Posting Builds-1 vote."
-    - >
-      curl -f -s \
-        -H "Content-Type: application/json; charset=UTF-8" \
-        -u "$GERRIT_BOT_USER:$GERRIT_BOT_TOKEN" \
-        -d "{\"message\": \"GitLab CI pipeline failed: $CI_PIPELINE_URL\", \"labels\": {\"Builds\": -1}}" \
-        "https://$GERRIT_HOST/a/changes/${GERRIT_CHANGE_NUM}/revisions/${GERRIT_REVISION}/review"
+  extends: .gerrit_vote_base
   when: on_failure
+  variables:
+    VOTE_VALUE: "-1"
+    VOTE_STATUS_MSG: "GitLab CI pipeline failed"
+    LOG_MESSAGE: "One or more pipeline stages failed. Posting Builds-1 vote."
